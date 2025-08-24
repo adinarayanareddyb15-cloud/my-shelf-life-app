@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shelf Life Tracker</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            line-height: 1.6;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            background: #fff;
+            padding: 20px 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: #444;
+        }
+
+        .input-section {
+            margin-bottom: 20px;
+        }
+
+        .input-section form {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .input-section input, .input-section select {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            min-width: 150px;
+        }
+
+        .input-section button {
+            padding: 10px 20px;
+            background-color: #5cb85c;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .input-section button:hover {
+            background-color: #4cae4c;
+        }
+        
+        .expiry-options {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .table-section {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        .actions {
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .actions button {
+            padding: 10px 20px;
+            margin: 0 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        #print-btn {
+            background-color: #0275d8;
+            color: white;
+        }
+
+        #print-btn:hover {
+            background-color: #025aa5;
+        }
+
+        #export-csv-btn {
+            background-color: #f0ad4e;
+            color: white;
+        }
+
+        #export-csv-btn:hover {
+            background-color: #ec971f;
+        }
+
+        .edit-btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            padding: 8px 12px;
+            margin-right: 5px;
+        }
+
+        .delete-btn {
+            background-color: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            padding: 8px 12px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Shelf Life Tracker</h1>
+
+        <div class="input-section">
+            <form id="product-form">
+                <input type="text" id="product-description" placeholder="Product Description" required>
+                <input type="text" id="ean" placeholder="EAN" required>
+                <input type="text" id="muf-date" placeholder="Start Date (DD/MM/YYYY or MM/YYYY)" required>
+                <div class="expiry-options">
+                    <input type="text" id="expiry-date" placeholder="Expiry Date (DD/MM/YYYY or MM/YYYY)">
+                    <span>OR</span>
+                    <input type="number" id="shelf-life-value" placeholder="Shelf Life">
+                    <select id="shelf-life-unit">
+                        <option value="days">Days</option>
+                        <option value="weeks">Weeks</option>
+                        <option value="months">Months</option>
+                        <option value="years">Years</option>
+                    </select>
+                </div>
+                <button type="submit" id="add-product-btn">Add Product</button>
+            </form>
+        </div>
+
+        <div class="table-section">
+            <table id="product-table">
+                <thead>
+                    <tr>
+                        <th>Sl No</th>
+                        <th>Product Description</th>
+                        <th>EAN</th>
+                        <th>Start Date</th>
+                        <th>Expiry Date</th>
+                        <th>Time Elapsed</th>
+                        <th>Time Left</th>
+                        <th>Remaining %</th>
+                        <th>Remarks</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="product-list">
+                    </tbody>
+            </table>
+        </div>
+
+        <div class="actions">
+            <button id="print-btn">Print</button>
+            <button id="export-csv-btn">Export CSV</button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const form = document.getElementById('product-form');
+            const productList = document.getElementById('product-list');
+            const printBtn = document.getElementById('print-btn');
+            const exportCsvBtn = document.getElementById('export-csv-btn');
+            const addProductBtn = document.getElementById('add-product-btn');
+            
+            let products = [];
+            let editingIndex = -1;
+
+            // Helper function to parse dates in DD/MM/YYYY or MM/YYYY format
+            function parseDate(dateStr) {
+                if (!dateStr) return null;
+                
+                const parts = dateStr.split('/');
+                
+                if (parts.length === 3) { // DD/MM/YYYY
+                    const [day, month, year] = parts.map(Number);
+                    return new Date(year, month - 1, day);
+                } else if (parts.length === 2) { // MM/YYYY
+                    const [month, year] = parts.map(Number);
+                    return { month, year };
+                }
+                return null;
+            }
+
+            // Helper function to calculate expiry date from shelf life
+            function calculateExpiryDate(startDate, value, unit) {
+                const date = new Date(startDate.getTime()); // Create a copy
+                
+                switch (unit) {
+                    case 'days':
+                        date.setDate(date.getDate() + value);
+                        break;
+                    case 'weeks':
+                        date.setDate(date.getDate() + (value * 7));
+                        break;
+                    case 'months':
+                        date.setMonth(date.getMonth() + value);
+                        break;
+                    case 'years':
+                        date.setFullYear(date.getFullYear() + value);
+                        break;
+                }
+                return date;
+            }
+
+            // Helper function to format days into a human-readable string
+            function formatTime(days) {
+                if (days < 0) return 'Expired';
+                const years = Math.floor(days / 365.25);
+                const remainingDaysAfterYears = days % 365.25;
+                const months = Math.floor(remainingDaysAfterYears / 30.44);
+                const remainingDaysAfterMonths = remainingDaysAfterYears % 30.44;
+                const weeks = Math.floor(remainingDaysAfterMonths / 7);
+                const remainingDays = Math.floor(remainingDaysAfterMonths % 7);
+
+                let parts = [];
+                if (years > 0) parts.push(`${years} Year${years > 1 ? 's' : ''}`);
+                if (months > 0) parts.push(`${months} Month${months > 1 ? 's' : ''}`);
+                if (weeks > 0) parts.push(`${weeks} Week${weeks > 1 ? 's' : ''}`);
+                if (remainingDays > 0) parts.push(`${remainingDays} Day${remainingDays > 1 ? 's' : ''}`);
+                
+                return parts.length > 0 ? parts.join(', ') : (days === 0 ? 'Today' : 'Expired');
+            }
+
+            // Function to calculate all shelf life metrics
+            function calculateShelfLife(startDate, expiryDate) {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+
+                const totalDays = (expiryDate - startDate) / (1000 * 60 * 60 * 24);
+                const remainingDays = (expiryDate - today) / (1000 * 60 * 60 * 24);
+                const elapsedDays = (today - startDate) / (1000 * 60 * 60 * 24);
+
+                const remainingPercentage = (remainingDays / totalDays) * 100;
+                
+                let remarks = '';
+                if (remainingDays <= 0) {
+                    remarks = 'Expired';
+                } else if (remainingDays <= 30) {
+                    remarks = 'Expiring Soon';
+                } else {
+                    remarks = 'Good';
+                }
+
+                return {
+                    remainingTime: formatTime(remainingDays),
+                    elapsedTime: formatTime(elapsedDays),
+                    remainingPercentage: Math.round(remainingPercentage),
+                    remarks
+                };
+            }
+
+            // Function to render the product table with action buttons
+            function renderTable() {
+                productList.innerHTML = '';
+                products.forEach((product, index) => {
+                    const { remainingTime, elapsedTime, remainingPercentage, remarks } = calculateShelfLife(product.startDate instanceof Date ? product.startDate : new Date(product.startDate.year, product.startDate.month - 1, 1), product.expiryDate);
+                    
+                    const formattedExpiryDate = `${product.expiryDate.getDate()}/${product.expiryDate.getMonth() + 1}/${product.expiryDate.getFullYear()}`;
+                    
+                    let formattedStartDate;
+                    if (product.startDate instanceof Date) {
+                        formattedStartDate = `${product.startDate.getDate()}/${product.startDate.getMonth() + 1}/${product.startDate.getFullYear()}`;
+                    } else {
+                        formattedStartDate = `${product.startDate.month}/${product.startDate.year}`;
+                    }
+
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${index + 1}</td>
+                        <td>${product.description}</td>
+                        <td>${product.ean}</td>
+                        <td>${formattedStartDate}</td>
+                        <td>${formattedExpiryDate}</td>
+                        <td>${elapsedTime}</td>
+                        <td>${remainingTime}</td>
+                        <td>${remainingPercentage}%</td>
+                        <td>${remarks}</td>
+                        <td>
+                            <button class="edit-btn" data-index="${index}">Edit</button>
+                            <button class="delete-btn" data-index="${index}">Delete</button>
+                        </td>
+                    `;
+                    productList.appendChild(row);
+                });
+
+                // Add event listeners for the new buttons
+                document.querySelectorAll('.edit-btn').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        const index = e.target.getAttribute('data-index');
+                        editProduct(index);
+                    });
+                });
+
+                document.querySelectorAll('.delete-btn').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        const index = e.target.getAttribute('data-index');
+                        deleteProduct(index);
+                    });
+                });
+            }
+
+            // Function to delete a product from the array
+            function deleteProduct(index) {
+                if (confirm(`Are you sure you want to delete ${products[index].description}?`)) {
+                    products.splice(index, 1);
+                    renderTable();
+                }
+            }
+
+            // Function to handle the edit process
+            function editProduct(index) {
+                const productToEdit = products[index];
+                
+                document.getElementById('product-description').value = productToEdit.description;
+                document.getElementById('ean').value = productToEdit.ean;
+                
+                if (productToEdit.startDate instanceof Date) {
+                    document.getElementById('muf-date').value = `${productToEdit.startDate.getDate()}/${productToEdit.startDate.getMonth() + 1}/${productToEdit.startDate.getFullYear()}`;
+                } else {
+                    document.getElementById('muf-date').value = `${productToEdit.startDate.month}/${productToEdit.startDate.year}`;
+                }
+
+                document.getElementById('expiry-date').value = `${productToEdit.expiryDate.getDate()}/${productToEdit.expiryDate.getMonth() + 1}/${productToEdit.expiryDate.getFullYear()}`;
+                document.getElementById('shelf-life-value').value = '';
+                document.getElementById('shelf-life-unit').value = 'days';
+
+                editingIndex = index;
+                addProductBtn.textContent = 'Save Changes';
+            }
+
+            // Handle form submission
+            form.addEventListener('submit', (e) => {
+                e.preventDefault();
+
+                const description = document.getElementById('product-description').value;
+                const ean = document.getElementById('ean').value;
+                const mufDateStr = document.getElementById('muf-date').value;
+                let expiryDateStr = document.getElementById('expiry-date').value;
+                const shelfLifeValue = document.getElementById('shelf-life-value').value;
+                const shelfLifeUnit = document.getElementById('shelf-life-unit').value;
+                
+                const mufDateParsed = parseDate(mufDateStr);
+                let startDate;
+                let expiryDate;
+
+                if (mufDateParsed instanceof Date) {
+                    startDate = mufDateParsed;
+                } else {
+                    startDate = new Date(mufDateParsed.year, mufDateParsed.month - 1, 1);
+                }
+
+                if (expiryDateStr) {
+                    const expiryDateParsed = parseDate(expiryDateStr);
+                    if (expiryDateParsed instanceof Date) {
+                        expiryDate = expiryDateParsed;
+                    } else {
+                        expiryDate = new Date(expiryDateParsed.year, expiryDateParsed.month, 0);
+                    }
+                } else if (shelfLifeValue && shelfLifeUnit) {
+                    expiryDate = calculateExpiryDate(startDate, parseInt(shelfLifeValue), shelfLifeUnit);
+                } else {
+                    alert("Please enter either an Expiry Date or Shelf Life.");
+                    return;
+                }
+                
+                const newProduct = {
+                    description,
+                    ean,
+                    startDate: mufDateParsed,
+                    expiryDate
+                };
+
+                if (editingIndex > -1) {
+                    products[editingIndex] = newProduct;
+                    editingIndex = -1;
+                    addProductBtn.textContent = 'Add Product';
+                } else {
+                    products.push(newProduct);
+                }
+
+                renderTable();
+                form.reset();
+            });
+
+            // Handle Print button
+            printBtn.addEventListener('click', () => {
+                window.print();
+            });
+
+            // Handle Export CSV button
+            exportCsvBtn.addEventListener('click', () => {
+                const headers = ["Sl No", "Product Description", "EAN", "Start Date", "Expiry Date", "Time Elapsed", "Time Left", "Remaining %", "Remarks"];
+                
+                let csvContent = "data:text/csv;charset=utf-8,";
+                csvContent += headers.join(",") + "\n";
+                
+                products.forEach((product, index) => {
+                    const { remainingTime, elapsedTime, remainingPercentage, remarks } = calculateShelfLife(product.startDate instanceof Date ? product.startDate : new Date(product.startDate.year, product.startDate.month - 1, 1), product.expiryDate);
+                    
+                    const formattedExpiryDate = `${product.expiryDate.getDate()}/${product.expiryDate.getMonth() + 1}/${product.expiryDate.getFullYear()}`;
+                    
+                    let formattedStartDate;
+                    if (product.startDate instanceof Date) {
+                        formattedStartDate = `${product.startDate.getDate()}/${product.startDate.getMonth() + 1}/${product.startDate.getFullYear()}`;
+                    } else {
+                        formattedStartDate = `${product.startDate.month}/${product.startDate.year}`;
+                    }
+
+                    const escapeCsv = (str) => {
+                        if (typeof str !== 'string') return str;
+                        return `"${str.replace(/"/g, '""')}"`;
+                    };
+
+                    const row = [
+                        index + 1,
+                        escapeCsv(product.description),
+                        escapeCsv(product.ean),
+                        escapeCsv(formattedStartDate),
+                        escapeCsv(formattedExpiryDate),
+                        escapeCsv(elapsedTime),
+                        escapeCsv(remainingTime),
+                        `${remainingPercentage}%`,
+                        escapeCsv(remarks)
+                    ];
+                    csvContent += row.join(",") + "\n";
+                });
+                
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", "shelf_life_data.csv");
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            });
+        });
+    </script>
+    <p>This app build by the (ADINARAYANA REDDY B)</p>
+</body>
+</html>
